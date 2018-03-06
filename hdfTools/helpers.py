@@ -33,14 +33,15 @@ def get_window(easting,northing,window,hdfFile):
 
         # Generate extents of the window L(eft), R(ight),T(op), B(ottom), adjust if out of image bounds
         winLx = max(xArray - window,0)
-        winRx = min(xArray + window,metaDict['columns'])
+        winRx = min(xArray + window+1,metaDict['columns'])
         winTy = max(yArray - window,0)
-        winBy = min(yArray + window, metaDict['rows'])
+        winBy = min(yArray + window+1, metaDict['rows'])
     
         # If the box does not intersect the image
         if any([coord <= 0 for coord in [winRx,winBy]]) or winTy> metaDict['rows'] or winLx >metaDict['columns']:
             print "No intersection"
             subset = "No intersection"
+            return subset,metaDict
         else:
             # Slice out subset as float
             subset = data[winTy:winBy,winLx:winRx,:]
@@ -59,6 +60,8 @@ def get_window(easting,northing,window,hdfFile):
         metaDict['winLx'] = winLx
         metaDict['winTy'] = winTy
         metaDict['winBy'] = winBy
+        metaDict['rows'] =subset.shape[0] 
+        metaDict['columns'] = subset.shape[1] 
         
         return subset,metaDict
 
@@ -152,7 +155,14 @@ def get_metadata(hdfFile):
         metaDict['rows'] = data.shape[0]
         metaDict['columns'] = data.shape[1]
         metaDict['bands'] = data.shape[2]
-        metaDict['good_bands'] = ((metaDict['wavelengths'] >=400) & (metaDict['wavelengths'] <=1330)) | ((metaDict['wavelengths'] >=1430) & (metaDict['wavelengths'] <=1800)) |((metaDict['wavelengths'] >=1960) & (metaDict['wavelengths'] <=2450))
+        
+        region1 = (metaDict['wavelengths'] >=400) & (metaDict['wavelengths'] <=1330)
+        region2 = (metaDict['wavelengths'] >=1430) & (metaDict['wavelengths'] <=1800)
+        region3 = (metaDict['wavelengths'] >=1960) & (metaDict['wavelengths'] <=2450)
+
+        metaDict['good_bands'] = region1| region2 | region3 
+        
+
            
         objectHDF.close()       
 
@@ -238,13 +248,13 @@ def array_to_geotiff(array,metaDict,dstFile,datatype = gdal.GDT_Int16):
     
     # Set the output raster transform and projection properties
     driver = gdal.GetDriverByName("GTIFF")
-    tiff = driver.Create(dstFile,metaDict['columns'],metaDict['rows'],len(bandList),gdal.GDT_Int16)
+    tiff = driver.Create(dstFile,metaDict['columns'],metaDict['rows'],metaDict['bands'],gdal.GDT_Int16)
     transform = (metaDict['ulX'],float(metaDict['map_info'][1]),0,metaDict['ulY'],0,-float(metaDict['map_info'][2]))
     tiff.SetGeoTransform(transform)
     tiff.SetProjection(metaDict['coord_sys'])
         
     # Write bands to file
-    for band in range(metaDict['bands']):
+    for band in range(array.shape[2]):
         tiff.GetRasterBand(band +1).WriteArray(array[:,:,band])
         tiff.GetRasterBand(band +1).SetNoDataValue(-9999)
         
@@ -297,7 +307,75 @@ def hdf_to_geotiff(srcFile,bandList = [27,17,7,47]):
 
 
 
+def apply_PLSR(srcFile,traitCoeffs):    
+    """
+    Apply PLSR coefficients to HDF file.
 
+    Parameters
+    ----------
+    srcFile : Pathname of input file
+    traitCoeffs : Pathname of CSV containgin PLSR coefficients
+
+    Returns
+    -------
+    m x n x 2 numpy array af trait mean and standard deviation
+    
+    """
+    
+    # Load trait model
+    traitModel = pd.read_csv(traitCoeffs,index_col = 0)
+    traitModel = traitModel.T
+    wavelengths = [int(x) for x in traitModel.columns if x <> "intercept"]
+    wavelengthsStr = [x for x in traitModel.columns if x <> "intercept"]
+    coeffs =traitModel[wavelengthsStr].values.reshape((1,500,len(wavelengths)))
+    intercept = traitModel["intercept"].values.reshape(1,1,500)
+    
+    # Open HDF file
+    srcHDF = h5py.File(srcFile,'r+')
+    data = srcHDF[srcHDF.keys()[0]]["Reflectance"]["Reflectance_Data"]
+    yChunk,xChunk,bChunk = data.chunks
+
+    traitArray = np.zeros((data.shape[0],data.shape[1],2))
+    
+    # Create wavelength mask 
+    waveMask = np.arange(data.shape[2])[[x in wavelengths for x in metaDict['wavelengths']]]
+    
+    # Apply PLSR mode
+    for y in range(metaDict['rows']/yChunk+1):
+        perc = round(float(y)/(metaDict['rows']/yChunk+1),2)
+        print "%s:  %s complete" % (os.path.basename(srcFile),perc) 
+        yStart = y*yChunk
+        yEnd = (y+1)*yChunk      
+        if yEnd >= metaDict['rows']:
+            yEnd = metaDict['rows'] 
+        
+        for x in range(metaDict['columns']/xChunk+1):
+            xStart = x*xChunk
+            xEnd = (x+1)*xChunk
+            if xEnd >= metaDict['columns']:
+                xEnd = metaDict['columns'] 
+                
+            # Slice and mask chunk    
+            dataArr =data[yStart:yEnd,xStart:xEnd,waveMask]
+            dataArr = ma.masked_array(dataArr, mask = dataArr == -9999).astype(float)
+            
+            # Apply PLSR coefficients
+            traits = np.einsum('jkl,mnl->jkn',dataArr,coeffs )
+            traitPred =  traits+intercept
+            
+            traitMean =traitPred.mean(axis=2)
+            traitStd =traitPred.std(axis=2,ddof=1)
+          
+            # Remask no data    
+            traitStd[dataArr.mask[:,:,0]] = -9999
+            traitMean[dataArr.mask[:,:,0]]  = -9999
+    
+            traitArray[yStart:yEnd,xStart:xEnd,0] = traitMean
+            traitArray[yStart:yEnd,xStart:xEnd:,1] = traitStd
+
+    srcHDF.close()
+    
+    return traitArray
 
 
 

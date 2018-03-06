@@ -152,7 +152,7 @@ def apply_resample(srcFile,dstFile,dstWaves,dstFWHMs):
     
     #repack HDF and delete temporary file
     print "Beginning repack-- %s" % time.ctime()
-    process = subprocess.Popen("h5repack -f GZIP=6 %s %s" % (tmpFile,dstFile),shell= True)
+    process = subprocess.Popen("h5repack -f GZIP=9 %s %s" % (tmpFile,dstFile),shell= True)
     process.wait()
     print "Repack complete-- %s" % time.ctime()
 

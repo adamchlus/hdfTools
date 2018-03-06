@@ -146,7 +146,7 @@ def write_kernel(srcFile):
     ancData = objectHDF[objectHDF.keys()[0]]["Reflectance"]["Metadata"]['Ancillary_Imagery']
     ancData.create_dataset('kVol', data = kVol)
     ancData.create_dataset('kGeo', data = kGeo)
-    ancData.create_dataset('kVol_nadi', data = kVolNadir)
+    ancData.create_dataset('kVol_nadir', data = kVolNadir)
     ancData.create_dataset('kGeo_nadir', data = kGeoNadir)
 
     objectHDF.close()

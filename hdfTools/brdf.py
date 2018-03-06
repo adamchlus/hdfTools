@@ -141,7 +141,7 @@ def apply_brdf(srcFile,brdfCoeffDF):
     # Load kernels
     kVol = metadata['Ancillary_Imagery']['kVol'][:,:]
     kGeo = metadata['Ancillary_Imagery']['kGeo'][:,:]
-    kVolNadir = metadata['Ancillary_Imagery']['kVol_nadi'][:,:]
+    kVolNadir = metadata['Ancillary_Imagery']['kVol_nadir'][:,:]
     kGeoNadir = metadata['Ancillary_Imagery']['kGeo_nadir'][:,:]
 
     yChunk,xChunk,bChunk = data.chunks
