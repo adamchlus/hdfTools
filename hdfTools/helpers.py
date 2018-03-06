@@ -248,7 +248,7 @@ def array_to_geotiff(array,metaDict,dstFile,datatype = gdal.GDT_Int16):
     
     # Set the output raster transform and projection properties
     driver = gdal.GetDriverByName("GTIFF")
-    tiff = driver.Create(dstFile,metaDict['columns'],metaDict['rows'],metaDict['bands'],gdal.GDT_Int16)
+    tiff = driver.Create(dstFile,metaDict['columns'],metaDict['rows'],array.shape[2],gdal.GDT_Int16)
     transform = (metaDict['ulX'],float(metaDict['map_info'][1]),0,metaDict['ulY'],0,-float(metaDict['map_info'][2]))
     tiff.SetGeoTransform(transform)
     tiff.SetProjection(metaDict['coord_sys'])
