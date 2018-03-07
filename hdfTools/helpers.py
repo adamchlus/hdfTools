@@ -131,16 +131,17 @@ def get_hspan(northing,window,hdfFile, bandList = None):
 
 
 def get_metadata(hdfFile):
-    '''Parse image metadta into a dictionary
+    '''Parse image metadata into a dictionary
+    
        :param hdfFile: pathname to hdf file
        :return metaDict: dctionary with file metadata
  
     '''
-    #use exceptions to close the hdf file in the event of an error
+    # Use exceptions to close the hdf file in the event of an error
     try:
         objectHDF = h5py.File(hdfFile,'r')
         
-        #metadata dictionary
+        # Metadata dictionary
         metaDict = {}
         
         # Get metadata
@@ -156,14 +157,11 @@ def get_metadata(hdfFile):
         metaDict['columns'] = data.shape[1]
         metaDict['bands'] = data.shape[2]
         
+        # Define good wavelength regions
         region1 = (metaDict['wavelengths'] >=400) & (metaDict['wavelengths'] <=1330)
         region2 = (metaDict['wavelengths'] >=1430) & (metaDict['wavelengths'] <=1800)
         region3 = (metaDict['wavelengths'] >=1960) & (metaDict['wavelengths'] <=2450)
-
         metaDict['good_bands'] = region1| region2 | region3 
-        
-
-           
         objectHDF.close()       
 
         return metaDict
@@ -261,13 +259,15 @@ def array_to_geotiff(array,metaDict,dstFile,datatype = gdal.GDT_Int16):
     del tiff, driver
     
 
-def hdf_to_geotiff(srcFile,bandList = [27,17,7,47]):
+def hdf_to_geotiff(srcFile,dstFile = None,bandList = [27,17,7,47]):
     """
     Export HDF file as geotiff.
 
     Parameters
     ----------
     srcFile : Pathname of hdf file to be converted to a geotiff.
+    dstFile : Pathname of output geotiff, if none save use srcFile with .tif extension
+
     bandList : List of band indices to be included in geotiff.
 
     Returns
@@ -277,10 +277,10 @@ def hdf_to_geotiff(srcFile,bandList = [27,17,7,47]):
     Geotiff saved to same directory as input HDF.
     
     """
-    
-    outDIR= os.path.split(srcFile)[0]
-    basename = os.path.splitext(os.path.basename(srcFile))[0]
-    dstFile = "%s/%s.tif" % (outDIR,basename)
+    if dstFile == None:
+        outDIR= os.path.split(srcFile)[0]
+        basename = os.path.splitext(os.path.basename(srcFile))[0]
+        dstFile = "%s/%s.tif" % (outDIR,basename)
 
     # Load HDF file
     metaDict =get_metadata(srcFile)
@@ -294,14 +294,21 @@ def hdf_to_geotiff(srcFile,bandList = [27,17,7,47]):
     tiff.SetGeoTransform(transform)
     tiff.SetProjection(metaDict['coord_sys'])
     
+    # Weird no data values..
+    # TODO Fix
+    mask = data[:,:,0] == -9999
+    
     # Cycle through each band
     for i,band in enumerate(bandList):
         print "Saving band %s" % band
+        raster = data[:,:,band]
+        raster[mask] = -9999
         tiff.GetRasterBand(i+1).WriteArray(data[:,:,band])
         tiff.GetRasterBand(i+1).SetNoDataValue(-9999)
     
     #the file is written to the disk once the driver variables are deleted
-    del tiff, driver   
+    del tiff, driver,mask,raster  
+    
     
     srcHDF.close()
 
@@ -319,7 +326,6 @@ def apply_PLSR(srcFile,traitCoeffs):
     Returns
     -------
     m x n x 2 numpy array af trait mean and standard deviation
-    
     """
     
     # Load trait model
@@ -331,7 +337,8 @@ def apply_PLSR(srcFile,traitCoeffs):
     intercept = traitModel["intercept"].values.reshape(1,1,500)
     
     # Open HDF file
-    srcHDF = h5py.File(srcFile,'r+')
+    srcHDF = h5py.File(srcFile,'r')
+    metaDict =get_metadata(srcFile)
     data = srcHDF[srcHDF.keys()[0]]["Reflectance"]["Reflectance_Data"]
     yChunk,xChunk,bChunk = data.chunks
 
@@ -358,6 +365,10 @@ def apply_PLSR(srcFile,traitCoeffs):
             # Slice and mask chunk    
             dataArr =data[yStart:yEnd,xStart:xEnd,waveMask]
             dataArr = ma.masked_array(dataArr, mask = dataArr == -9999).astype(float)
+            
+            # Add dimension for special case
+            if yEnd == yStart:
+               dataArr = ma.expand_dims(dataArr,axis=0)
             
             # Apply PLSR coefficients
             traits = np.einsum('jkl,mnl->jkn',dataArr,coeffs )
