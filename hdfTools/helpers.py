@@ -294,7 +294,7 @@ def hdf_to_geotiff(srcFile,dstFile = None,bandList = [27,17,7,47]):
     tiff.SetGeoTransform(transform)
     tiff.SetProjection(metaDict['coord_sys'])
     
-    # Weird no data values..
+    # Weird no data values, temporary fix????
     # TODO Fix
     mask = data[:,:,0] == -9999
     
@@ -303,12 +303,11 @@ def hdf_to_geotiff(srcFile,dstFile = None,bandList = [27,17,7,47]):
         print "Saving band %s" % band
         raster = data[:,:,band]
         raster[mask] = -9999
-        tiff.GetRasterBand(i+1).WriteArray(data[:,:,band])
+        tiff.GetRasterBand(i+1).WriteArray(raster)
         tiff.GetRasterBand(i+1).SetNoDataValue(-9999)
     
     #the file is written to the disk once the driver variables are deleted
     del tiff, driver,mask,raster  
-    
     
     srcHDF.close()
 
@@ -364,11 +363,14 @@ def apply_PLSR(srcFile,traitCoeffs):
                 
             # Slice and mask chunk    
             dataArr =data[yStart:yEnd,xStart:xEnd,waveMask]
-            dataArr = ma.masked_array(dataArr, mask = dataArr == -9999).astype(float)
+            dataArr = np.ma.masked_array(dataArr, mask = dataArr == -9999).astype(float)
             
-            # Add dimension for special case
+            # Add dimension for special cases
             if yEnd == yStart:
-               dataArr = ma.expand_dims(dataArr,axis=0)
+               dataArr = np.ma.expand_dims(dataArr,axis=0)
+               
+            if xStart == xEnd:
+               dataArr = np.ma.expand_dims(dataArr,axis=1)
             
             # Apply PLSR coefficients
             traits = np.einsum('jkl,mnl->jkn',dataArr,coeffs )
